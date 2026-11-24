@@ -96,10 +96,34 @@ cp .env.example .env
 
 Edita `backend/.env` y coloca tu cadena de conexión de Atlas en `MONGO_URI` y una clave larga en `JWT_SECRET`.
 
+Para generar un `JWT_SECRET` aleatorio:
+
+```bash
+node -e "console.log(require('crypto').randomBytes(48).toString('hex'))"
+```
+
 ```bash
 npm run seed   # crea categorías, puntos, directorio, zonas y el usuario de prueba
 npm run dev    # http://localhost:3000
 ```
+
+> **Base de datos compartida del equipo:** la base `puntoseguro` en Atlas ya tiene los datos cargados.
+> Si usas la misma `MONGO_URI` que tus compañeros, **no corras `npm run seed`**: borra y vuelve a cargar
+> categorías, puntos, zonas y directorio, y se perderían los cambios de todos (los usuarios sí se conservan).
+> Pide la `MONGO_URI` por un medio privado; nunca la subas al repositorio.
+> Además, tu IP debe estar permitida en Atlas → **Security → Network Access**, o la conexión fallará.
+
+### Pruebas de la API
+
+Con el servidor encendido (`npm run dev`), en otra terminal dentro de `backend`:
+
+```bash
+npm test
+```
+
+Recorre todos los endpoints (registro e inicio de sesión, categorías, puntos de ayuda, zonas y los 4 CRUD del directorio):
+agrega, busca, filtra, edita y elimina, prueba las validaciones y revisa directamente en MongoDB que cada cambio
+se guardó o se borró. Todo lo que crea lleva el prefijo `ZZ-PRUEBA` y se elimina al final, así que no modifica los datos existentes.
 
 ### 2. Frontend
 
