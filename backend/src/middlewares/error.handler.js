@@ -60,43 +60,6 @@ function errorHandler(err, req,res, next){
         });
     }
 
-    // ObjectId mal formado (ej. /api/help-points/abc)
-    if(err.name === "CastError"){
-        return res.status(400).json({
-            error:{
-                status: 400,
-                message: `El valor "${err.value}" no es válido para el campo ${err.path}`,
-                path: req.originalUrl,
-                timestamp: new Date().toISOString()
-            }
-        });
-    }
-
-    // Llave duplicada en MongoDB (ej. correo repetido)
-    if(err.code === 11000){
-        return res.status(400).json({
-            error:{
-                status: 400,
-                message: "Ya existe un registro con ese valor",
-                details: Object.keys(err.keyValue || {}),
-                path: req.originalUrl,
-                timestamp: new Date().toISOString()
-            }
-        });
-    }
-
-    // Geometría que MongoDB no puede indexar (ej. polígono que se cruza a sí mismo)
-    if(err.code === 16755 || /geo keys|Loop is not valid|Edges \d+ and \d+ cross/i.test(err.message || "")){
-        return res.status(400).json({
-            error:{
-                status: 400,
-                message: "La geometría no es válida (revisa que el polígono no se cruce consigo mismo)",
-                path: req.originalUrl,
-                timestamp: new Date().toISOString()
-            }
-        });
-    }
-
     const statusCode = err.statusCode || 500;
     const message= 
         statusCode=== 500

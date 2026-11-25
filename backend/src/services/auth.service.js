@@ -4,67 +4,43 @@ const bcrypt = require("bcryptjs");
 
 const UserModel = require("../models/user.model");
 const AppError = require("../utils/appError");
-const { signToken } = require("../utils/token");
-
-const SALT_ROUNDS = 10;
 
 class AuthService {
 
-    async register({ name, email, password }) {
-        const normalizedEmail = email.trim().toLowerCase();
+    async register(data) {
+        const email = data.email.trim().toLowerCase();
 
         // No se permiten correos duplicados
-        const exists = await UserModel.exists({ email: normalizedEmail });
+        const existingUser = await UserModel.findOne({ email });
 
-        if (exists) {
+        if (existingUser) {
             throw new AppError(400, "Ya existe una cuenta registrada con ese correo.");
         }
 
-        // La contraseña nunca se guarda en texto plano
-        const hashedPassword = await bcrypt.hash(password, SALT_ROUNDS);
+        // La contraseña se cifra antes de guardarla
+        const hashedPassword = await bcrypt.hash(data.password, 10);
 
-        const user = await UserModel.create({
-            name: name.trim(),
-            email: normalizedEmail,
+        return UserModel.create({
+            name: data.name.trim(),
+            email,
             password: hashedPassword
         });
-
-        return {
-            token: signToken(user),
-            user
-        };
     }
 
-    async login({ email, password }) {
-        const normalizedEmail = email.trim().toLowerCase();
+    async login(data) {
+        const email = data.email.trim().toLowerCase();
 
-        // select("+password") porque en el modelo está oculta
-        const user = await UserModel.findOne({ email: normalizedEmail }).select("+password");
-
-        // Mismo mensaje para "no existe" y "contraseña incorrecta"
-        const invalidMessage = "Correo o contraseña incorrectos.";
+        const user = await UserModel.findOne({ email });
 
         if (!user) {
-            throw new AppError(401, invalidMessage);
+            throw new AppError(401, "Correo o contraseña incorrectos.");
         }
 
-        const isValid = await bcrypt.compare(password, user.password);
+        // Compara la contraseña escrita con la versión cifrada de MongoDB
+        const isValidPassword = await bcrypt.compare(data.password, user.password);
 
-        if (!isValid) {
-            throw new AppError(401, invalidMessage);
-        }
-
-        return {
-            token: signToken(user),
-            user
-        };
-    }
-
-    async getProfile(userId) {
-        const user = await UserModel.findById(userId);
-
-        if (!user) {
-            throw new AppError(401, "El usuario de la sesión ya no existe.");
+        if (!isValidPassword) {
+            throw new AppError(401, "Correo o contraseña incorrectos.");
         }
 
         return user;

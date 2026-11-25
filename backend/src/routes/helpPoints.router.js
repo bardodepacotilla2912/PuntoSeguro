@@ -2,6 +2,7 @@
 const express = require("express");
 
 const HelpPointsService = require("../services/helpPoints.service");
+
 const {
     validateHelpPointPayload,
     validateHelpPointQuery,
@@ -11,18 +12,14 @@ const {
 const router = express.Router();
 const service = new HelpPointsService();
 
-function readFilters(query) {
-    return {
-        search: query.search,
-        category: query.category,
-        status: query.status,
-        zone: query.zone
-    };
-}
-
-// GET /api/help-points?search=&category=&status=&zone=
 router.get("/", validateHelpPointQuery, async (req, res) => {
-    const points = await service.getAll(readFilters(req.query));
+    const filters = {
+        search: req.query.search,
+        category: req.query.category,
+        status: req.query.status
+    };
+
+    const points = await service.getAll(filters);
 
     res.status(200).json({
         count: points.length,
@@ -30,22 +27,27 @@ router.get("/", validateHelpPointQuery, async (req, res) => {
     });
 });
 
-// GET /api/help-points/geojson (mismos filtros, formato FeatureCollection)
 router.get("/geojson", validateHelpPointQuery, async (req, res) => {
-    const geoJSON = await service.getGeoJSON(readFilters(req.query));
+    const filters = {
+        search: req.query.search,
+        category: req.query.category,
+        status: req.query.status
+    };
+
+    const geoJSON = await service.getGeoJSON(filters);
 
     res.status(200).json(geoJSON);
 });
 
-// GET /api/help-points/nearest?lat=&lng=&category=&limit=&maxDistance=
+// Puntos más cercanos a una coordenada: ?lat=&lng=&category=
 router.get("/nearest", validateNearestQuery, async (req, res) => {
-    const points = await service.getNearest({
+    const filters = {
         lat: req.query.lat,
         lng: req.query.lng,
-        category: req.query.category,
-        limit: req.query.limit ?? 5,
-        maxDistance: req.query.maxDistance ?? 20
-    });
+        category: req.query.category
+    };
+
+    const points = await service.getNearest(filters);
 
     res.status(200).json({
         count: points.length,
@@ -54,7 +56,9 @@ router.get("/nearest", validateNearestQuery, async (req, res) => {
 });
 
 router.get("/:id", async (req, res) => {
-    const point = await service.getById(req.params.id);
+    const { id } = req.params;
+
+    const point = await service.getById(id);
 
     res.status(200).json({
         data: point
@@ -62,7 +66,7 @@ router.get("/:id", async (req, res) => {
 });
 
 router.post("/", validateHelpPointPayload({ partial: false }), async (req, res) => {
-    const point = await service.create(req.body, req.user.id);
+    const point = await service.create(req.body);
 
     res.status(201).json({
         message: "Punto de ayuda registrado correctamente",
@@ -71,7 +75,9 @@ router.post("/", validateHelpPointPayload({ partial: false }), async (req, res) 
 });
 
 router.patch("/:id", validateHelpPointPayload({ partial: true }), async (req, res) => {
-    const point = await service.update(req.params.id, req.body);
+    const { id } = req.params;
+
+    const point = await service.update(id, req.body);
 
     res.status(200).json({
         message: "Punto de ayuda actualizado correctamente",
@@ -80,7 +86,9 @@ router.patch("/:id", validateHelpPointPayload({ partial: true }), async (req, re
 });
 
 router.delete("/:id", async (req, res) => {
-    const point = await service.delete(req.params.id);
+    const { id } = req.params;
+
+    const point = await service.delete(id);
 
     res.status(200).json({
         message: "Punto de ayuda eliminado correctamente",

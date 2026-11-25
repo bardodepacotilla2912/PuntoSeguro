@@ -1,7 +1,6 @@
 "use strict";
 
 const mongoose = require("mongoose");
-const { baseSchemaOptions } = require("./schema.options");
 
 const userSchema = new mongoose.Schema(
     {
@@ -11,28 +10,29 @@ const userSchema = new mongoose.Schema(
             trim: true,
             maxlength: 80
         },
+        // unique: no se permiten dos cuentas con el mismo correo
         email: {
             type: String,
             required: true,
             unique: true,
             trim: true,
-            lowercase: true,
-            maxlength: 120
+            lowercase: true
         },
-        // Se guarda cifrada con bcrypt. select:false evita que salga en las consultas
+        // Se guarda cifrada con bcrypt, nunca en texto plano
         password: {
             type: String,
-            required: true,
-            select: false
+            required: true
         }
     },
     {
-        ...baseSchemaOptions,
+        timestamps: true,
+
         toJSON: {
             versionKey: false,
             transform(doc, ret) {
                 ret.id = ret._id.toString();
                 delete ret._id;
+                // La contraseña nunca se regresa en las respuestas
                 delete ret.password;
                 return ret;
             }

@@ -2,7 +2,10 @@
 const express = require("express");
 
 const ZonesService = require("../services/zones.service");
-const { validateZonePayload } = require("../middlewares/zone.validator");
+
+const {
+    validateZonePayload
+} = require("../middlewares/zone.validator");
 
 const router = express.Router();
 const service = new ZonesService();
@@ -16,22 +19,8 @@ router.get("/", async (req, res) => {
     });
 });
 
-router.get("/geojson", async (req, res) => {
-    const geoJSON = await service.getGeoJSON();
-
-    res.status(200).json(geoJSON);
-});
-
-router.get("/:id", async (req, res) => {
-    const zone = await service.getById(req.params.id);
-
-    res.status(200).json({
-        data: zone
-    });
-});
-
-router.post("/", validateZonePayload({ partial: false }), async (req, res) => {
-    const zone = await service.create(req.body, req.user.id);
+router.post("/", validateZonePayload, async (req, res) => {
+    const zone = await service.create(req.body);
 
     res.status(201).json({
         message: "Zona guardada correctamente",
@@ -39,17 +28,10 @@ router.post("/", validateZonePayload({ partial: false }), async (req, res) => {
     });
 });
 
-router.patch("/:id", validateZonePayload({ partial: true }), async (req, res) => {
-    const zone = await service.update(req.params.id, req.body);
-
-    res.status(200).json({
-        message: "Zona actualizada correctamente",
-        data: zone
-    });
-});
-
 router.delete("/:id", async (req, res) => {
-    const zone = await service.delete(req.params.id);
+    const { id } = req.params;
+
+    const zone = await service.delete(id);
 
     res.status(200).json({
         message: "Zona eliminada correctamente",

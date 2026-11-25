@@ -15,12 +15,4 @@ router.get("/", async (req, res) => {
     });
 });
 
-router.get("/:id", async (req, res) => {
-    const category = await service.getById(req.params.id);
-
-    res.status(200).json({
-        data: category
-    });
-});
-
 module.exports = router;

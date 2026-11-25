@@ -1,29 +1,53 @@
 "use strict";
 
 const mongoose = require("mongoose");
-const { baseSchemaOptions } = require("./schema.options");
-const { directoryBaseFields } = require("./directory.fields");
-const { PHARMACY_STATUSES } = require("../utils/constants");
+
+const {
+    ALLOWED_PHARMACY_STATUSES
+} = require("../middlewares/pharmacy.validator");
 
 const pharmacySchema = new mongoose.Schema(
     {
-        ...directoryBaseFields(PHARMACY_STATUSES),
-        chain: {
+        name: {
             type: String,
+            required: true,
             trim: true,
-            maxlength: 60,
-            default: ""
+            maxlength: 100
         },
-        is24h: {
-            type: Boolean,
-            default: false
+        status: {
+            type: String,
+            required: true,
+            enum: ALLOWED_PHARMACY_STATUSES
         },
-        delivery: {
-            type: Boolean,
-            default: false
+        phone: {
+            type: String,
+            required: true,
+            trim: true
+        },
+        address: {
+            type: String,
+            required: true,
+            trim: true,
+            maxlength: 200
+        },
+        schedule: {
+            type: String,
+            required: true,
+            trim: true
         }
     },
-    baseSchemaOptions
+    {
+        timestamps: true,
+
+        toJSON: {
+            versionKey: false,
+            transform(doc, ret) {
+                ret.id = ret._id.toString();
+                delete ret._id;
+                return ret;
+            }
+        }
+    }
 );
 
 const PharmacyModel = mongoose.model("Pharmacy", pharmacySchema);

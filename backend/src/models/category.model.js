@@ -1,11 +1,8 @@
 "use strict";
 
 const mongoose = require("mongoose");
-const { baseSchemaOptions } = require("./schema.options");
-const { CATEGORY_SLUGS } = require("../utils/constants");
 
-// Catálogo de categorías de los puntos de ayuda:
-// Hospital, Bomberos, Policía y Farmacia
+// Categorías de los puntos de ayuda: Hospital, Bomberos, Policía y Farmacia
 const categorySchema = new mongoose.Schema(
     {
         name: {
@@ -14,29 +11,24 @@ const categorySchema = new mongoose.Schema(
             trim: true,
             maxlength: 50
         },
-        slug: {
-            type: String,
-            required: true,
-            unique: true,
-            enum: CATEGORY_SLUGS
-        },
+        // Color con el que se pinta el punto en el mapa
         color: {
             type: String,
-            required: true,
-            default: "#2563eb"
-        },
-        icon: {
-            type: String,
-            default: "📍"
-        },
-        description: {
-            type: String,
-            trim: true,
-            maxlength: 200,
-            default: ""
+            required: true
         }
     },
-    baseSchemaOptions
+    {
+        timestamps: true,
+
+        toJSON: {
+            versionKey: false,
+            transform(doc, ret) {
+                ret.id = ret._id.toString();
+                delete ret._id;
+                return ret;
+            }
+        }
+    }
 );
 
 const CategoryModel = mongoose.model("Category", categorySchema);
