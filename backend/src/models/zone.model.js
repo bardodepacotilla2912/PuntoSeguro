@@ -1,9 +1,8 @@
 "use strict";
 
 const mongoose = require("mongoose");
-const { baseSchemaOptions } = require("./schema.options");
 
-// Zona dibujada en el mapa (polígono)
+// Zona dibujada en el mapa
 const zoneSchema = new mongoose.Schema(
     {
         name: {
@@ -12,36 +11,32 @@ const zoneSchema = new mongoose.Schema(
             trim: true,
             maxlength: 80
         },
-        description: {
-            type: String,
-            trim: true,
-            maxlength: 200,
-            default: ""
-        },
-        color: {
-            type: String,
-            default: "#7c3aed"
-        },
-        // GeoJSON Polygon: [[[longitud, latitud], ...]] (el anillo cierra en el primer punto)
+
+        // Área en formato GeoJSON Polygon: [[[longitud, latitud], ...]]
         area: {
             type: {
                 type: String,
                 enum: ["Polygon"],
-                default: "Polygon",
-                required: true
+                default: "Polygon"
             },
             coordinates: {
                 type: [[[Number]]],
                 required: true
             }
-        },
-        createdBy: {
-            type: mongoose.Schema.Types.ObjectId,
-            ref: "User",
-            required: true
         }
     },
-    baseSchemaOptions
+    {
+        timestamps: true,
+
+        toJSON: {
+            versionKey: false,
+            transform(doc, ret) {
+                ret.id = ret._id.toString();
+                delete ret._id;
+                return ret;
+            }
+        }
+    }
 );
 
 zoneSchema.index({ area: "2dsphere" });

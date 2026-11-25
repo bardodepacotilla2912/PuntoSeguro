@@ -1,31 +1,59 @@
 "use strict";
 
 const mongoose = require("mongoose");
-const { baseSchemaOptions } = require("./schema.options");
-const { directoryBaseFields } = require("./directory.fields");
-const { POLICE_TYPES, POLICE_STATUSES } = require("../utils/constants");
+
+const {
+    ALLOWED_POLICE_TYPES,
+    ALLOWED_POLICE_STATUSES
+} = require("../middlewares/policeStation.validator");
 
 const policeStationSchema = new mongoose.Schema(
     {
-        ...directoryBaseFields(POLICE_STATUSES),
+        name: {
+            type: String,
+            required: true,
+            trim: true,
+            maxlength: 100
+        },
         type: {
             type: String,
             required: true,
-            enum: POLICE_TYPES
+            enum: ALLOWED_POLICE_TYPES
         },
-        sector: {
+        status: {
             type: String,
+            required: true,
+            enum: ALLOWED_POLICE_STATUSES
+        },
+        phone: {
+            type: String,
+            required: true,
+            trim: true
+        },
+        address: {
+            type: String,
+            required: true,
             trim: true,
-            maxlength: 60,
-            default: ""
+            maxlength: 200
         },
         officers: {
             type: Number,
-            min: 0,
-            default: 0
+            required: true,
+            min: 0
         }
     },
-    baseSchemaOptions
+    {
+        timestamps: true,
+
+        toJSON: {
+            versionKey: false,
+            transform(doc, ret) {
+                ret.id = ret._id.toString();
+                delete ret._id;
+                return ret;
+            }
+        }
+    }
 );
 
 const PoliceStationModel = mongoose.model("PoliceStation", policeStationSchema);

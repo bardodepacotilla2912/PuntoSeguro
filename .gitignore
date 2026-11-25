@@ -6,3 +6,6 @@ dist/
 
 # Reporte de la práctica anterior (SistemaAccidente)
 Reporte/
+
+# Configuración local de Vercel
+.vercel/

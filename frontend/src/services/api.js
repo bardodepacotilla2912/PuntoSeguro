@@ -1,103 +1,108 @@
-import { auth } from "../stores/auth";
+// URL de la API. En producción se cambia en el archivo .env (VITE_API_URL)
+const API_URL = import.meta.env.VITE_API_URL || "http://localhost:3000/api";
 
-const BASE_URL = (import.meta.env.VITE_API_URL || "http://localhost:3000/api").replace(/\/$/, "");
+// Hace la petición y, si el backend responde con error, lanza el mensaje
+async function request(path, method = "GET", body = null) {
+  const options = {
+    method,
+    headers: { "Content-Type": "application/json" }
+  };
 
-// Error con el mensaje y los detalles que regresa el backend
-export class ApiError extends Error {
-  constructor(status, message, details = null) {
-    super(message);
-    this.status = status;
-    this.details = details;
+  if (body) {
+    options.body = JSON.stringify(body);
   }
 
-  // Texto listo para mostrar en un mensaje
-  get fullMessage() {
-    if (Array.isArray(this.details) && this.details.length > 0) {
-      return `${this.message}: ${this.details.join(" ")}`;
-    }
-    return this.message;
-  }
-}
-
-// Se llama cuando el backend responde 401 (token vencido / inválido)
-let onUnauthorized = () => {};
-export function setUnauthorizedHandler(handler) {
-  onUnauthorized = handler;
-}
-
-function buildQuery(params = {}) {
-  const search = new URLSearchParams();
-
-  Object.entries(params).forEach(([key, value]) => {
-    if (value !== undefined && value !== null && value !== "" && value !== "all") {
-      search.set(key, value);
-    }
-  });
-
-  const text = search.toString();
-  return text ? `?${text}` : "";
-}
-
-export async function request(path, { method = "GET", body, query } = {}) {
-  const headers = { "Content-Type": "application/json" };
-
-  if (auth.state.token) {
-    headers.Authorization = `Bearer ${auth.state.token}`;
-  }
-
-  let response;
-
-  try {
-    response = await fetch(`${BASE_URL}${path}${buildQuery(query)}`, {
-      method,
-      headers,
-      body: body !== undefined ? JSON.stringify(body) : undefined
-    });
-  } catch {
-    throw new ApiError(0, "No se pudo conectar con el servidor. Revisa que la API esté encendida.");
-  }
-
-  const data = await response.json().catch(() => null);
+  const response = await fetch(API_URL + path, options);
+  const data = await response.json();
 
   if (!response.ok) {
-    const error = data?.error || {};
+    let message = data.error.message;
 
-    if (response.status === 401 && auth.state.token) {
-      onUnauthorized();
+    if (data.error.details) {
+      message += ": " + data.error.details.join(" ");
     }
 
-    throw new ApiError(response.status, error.message || "Ocurrió un error inesperado", error.details);
+    throw new Error(message);
   }
 
   return data;
 }
 
-// Atajos por recurso
-export const api = {
-  // Autenticación
-  login: (body) => request("/auth/login", { method: "POST", body }),
-  register: (body) => request("/auth/register", { method: "POST", body }),
-  me: () => request("/auth/me"),
+// Arma el query string sin los filtros vacíos o en "all"
+function buildQuery(filters) {
+  const params = new URLSearchParams();
 
-  // Catálogo
-  categories: () => request("/categories"),
+  for (const key in filters) {
+    if (filters[key] !== "" && filters[key] !== "all") {
+      params.append(key, filters[key]);
+    }
+  }
 
-  // Puntos de ayuda (ubicaciones)
-  listPoints: (filters) => request("/help-points", { query: filters }),
-  nearestPoints: (params) => request("/help-points/nearest", { query: params }),
-  createPoint: (body) => request("/help-points", { method: "POST", body }),
-  updatePoint: (id, body) => request(`/help-points/${id}`, { method: "PATCH", body }),
-  deletePoint: (id) => request(`/help-points/${id}`, { method: "DELETE" }),
+  return params.toString();
+}
 
-  // Zonas
-  listZones: () => request("/zones"),
-  createZone: (body) => request("/zones", { method: "POST", body }),
-  updateZone: (id, body) => request(`/zones/${id}`, { method: "PATCH", body }),
-  deleteZone: (id) => request(`/zones/${id}`, { method: "DELETE" }),
+// ---------- Usuarios ----------
+export function login(data) {
+  return request("/auth/login", "POST", data);
+}
 
-  // Directorio (hospitales, bomberos, policía, farmacias)
-  listDirectory: (endpoint, filters) => request(`/${endpoint}`, { query: filters }),
-  createDirectory: (endpoint, body) => request(`/${endpoint}`, { method: "POST", body }),
-  updateDirectory: (endpoint, id, body) => request(`/${endpoint}/${id}`, { method: "PATCH", body }),
-  deleteDirectory: (endpoint, id) => request(`/${endpoint}/${id}`, { method: "DELETE" })
-};
+export function register(data) {
+  return request("/auth/register", "POST", data);
+}
+
+// ---------- Categorías ----------
+export function getCategories() {
+  return request("/categories");
+}
+
+// ---------- Puntos de ayuda ----------
+export function getHelpPoints(filters) {
+  return request("/help-points?" + buildQuery(filters));
+}
+
+export function getNearestPoints(filters) {
+  return request("/help-points/nearest?" + buildQuery(filters));
+}
+
+export function createHelpPoint(data) {
+  return request("/help-points", "POST", data);
+}
+
+export function updateHelpPoint(id, data) {
+  return request(`/help-points/${id}`, "PATCH", data);
+}
+
+export function deleteHelpPoint(id) {
+  return request(`/help-points/${id}`, "DELETE");
+}
+
+// ---------- Zonas ----------
+export function getZones() {
+  return request("/zones");
+}
+
+export function createZone(data) {
+  return request("/zones", "POST", data);
+}
+
+export function deleteZone(id) {
+  return request(`/zones/${id}`, "DELETE");
+}
+
+// ---------- Directorio (hospitales, bomberos, policía, farmacias) ----------
+// resource = "hospitals" | "fire-stations" | "police-stations" | "pharmacies"
+export function getItems(resource, filters) {
+  return request(`/${resource}?` + buildQuery(filters));
+}
+
+export function createItem(resource, data) {
+  return request(`/${resource}`, "POST", data);
+}
+
+export function updateItem(resource, id, data) {
+  return request(`/${resource}/${id}`, "PATCH", data);
+}
+
+export function deleteItem(resource, id) {
+  return request(`/${resource}/${id}`, "DELETE");
+}

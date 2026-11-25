@@ -1,8 +1,6 @@
 "use strict";
 const express = require("express");
 
-const { requireAuth } = require("../middlewares/auth.handler");
-
 const authRouter = require("./auth.router");
 const categoriesRouter = require("./categories.router");
 const helpPointsRouter = require("./helpPoints.router");
@@ -17,17 +15,14 @@ function routerApi(app) {
 
     app.use("/api", apiRouter);
 
-    // Rutas públicas: registro e inicio de sesión
     apiRouter.use("/auth", authRouter);
-
-    // Rutas internas: requieren token
-    apiRouter.use("/categories", requireAuth, categoriesRouter);
-    apiRouter.use("/help-points", requireAuth, helpPointsRouter);
-    apiRouter.use("/zones", requireAuth, zonesRouter);
-    apiRouter.use("/hospitals", requireAuth, hospitalsRouter);
-    apiRouter.use("/fire-stations", requireAuth, fireStationsRouter);
-    apiRouter.use("/police-stations", requireAuth, policeStationsRouter);
-    apiRouter.use("/pharmacies", requireAuth, pharmaciesRouter);
+    apiRouter.use("/categories", categoriesRouter);
+    apiRouter.use("/help-points", helpPointsRouter);
+    apiRouter.use("/zones", zonesRouter);
+    apiRouter.use("/hospitals", hospitalsRouter);
+    apiRouter.use("/fire-stations", fireStationsRouter);
+    apiRouter.use("/police-stations", policeStationsRouter);
+    apiRouter.use("/pharmacies", pharmaciesRouter);
 }
 
 module.exports = routerApi;

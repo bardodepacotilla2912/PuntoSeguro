@@ -1,70 +1,83 @@
 "use strict";
 
-const { createBodyValidator, isValidLatitude, isValidLongitude } = require("../utils/validate");
+const AppError = require("../utils/appError");
 
-// Revisa que coordinates sea un Polygon GeoJSON: [[[lng, lat], [lng, lat], ...]]
-// Si el anillo no viene cerrado, se cierra repitiendo el primer vértice.
-function checkPolygon(value, body) {
-    if (!Array.isArray(value) || value.length === 0) {
-        return "Las coordenadas del polígono deben ser una lista de anillos.";
+const ALLOWED_FIELDS = [
+    "name",
+    "coordinates"
+];
+
+// Validación del body al guardar una zona
+// coordinates = [[[longitud, latitud], [longitud, latitud], ...]] (GeoJSON Polygon)
+function validateZonePayload(req, res, next) {
+    const errors = [];
+    const body = req.body || {};
+
+    // Nombre
+    if (typeof body.name !== "string" || body.name.trim().length < 3) {
+        errors.push("El nombre de la zona debe contener al menos 3 caracteres.");
+    } else if (body.name.trim().length > 80) {
+        errors.push("El nombre de la zona no debe superar los 80 caracteres.");
+    } else if (!/^[A-Za-zÁÉÍÓÚÜÑáéíóúüñ0-9 .,'()#\/-]+$/.test(body.name.trim()) || !/[A-Za-zÁÉÍÓÚÜÑáéíóúüñ]/.test(body.name)) {
+        errors.push("El nombre de la zona debe tener letras y no puede llevar símbolos especiales.");
     }
 
-    const rings = [];
+    // Coordenadas del polígono
+    const coordinates = body.coordinates;
 
-    for (const ring of value) {
-        if (!Array.isArray(ring)) {
-            return "Cada anillo del polígono debe ser una lista de vértices.";
+    if (!Array.isArray(coordinates) || !Array.isArray(coordinates[0])) {
+        errors.push("Las coordenadas del polígono no son válidas.");
+    } else {
+        const ring = coordinates[0];
+
+        // 3 vértices + el vértice de cierre (igual al primero)
+        if (ring.length < 4) {
+            errors.push("El polígono debe tener al menos 3 vértices.");
         }
 
-        const vertices = [];
-
-        for (const vertex of ring) {
+        const invalidVertex = ring.some((vertex) => {
             if (!Array.isArray(vertex) || vertex.length !== 2) {
-                return "Cada vértice debe tener la forma [longitud, latitud].";
+                return true;
             }
 
-            const [lng, lat] = vertex;
+            const [longitude, latitude] = vertex;
 
-            if (!isValidLongitude(lng) || !isValidLatitude(lat)) {
-                return "Algún vértice tiene una longitud o latitud fuera de rango.";
+            return (
+                !Number.isFinite(longitude) || longitude < -180 || longitude > 180 ||
+                !Number.isFinite(latitude) || latitude < -90 || latitude > 90
+            );
+        });
+
+        if (invalidVertex) {
+            errors.push("Cada vértice debe tener la forma [longitud, latitud] con valores válidos.");
+        } else {
+            // GeoJSON exige que el polígono cierre: el último vértice es igual al primero
+            const first = ring[0];
+            const last = ring[ring.length - 1];
+
+            if (first[0] !== last[0] || first[1] !== last[1]) {
+                errors.push("El polígono debe cerrarse: el último vértice debe ser igual al primero.");
             }
-
-            vertices.push([Number(lng), Number(lat)]);
         }
-
-        const first = vertices[0];
-        const last = vertices[vertices.length - 1];
-
-        if (first && (first[0] !== last[0] || first[1] !== last[1])) {
-            vertices.push([...first]);
-        }
-
-        // Un polígono cerrado necesita al menos 3 vértices distintos + el de cierre
-        if (vertices.length < 4) {
-            return "El polígono debe tener al menos 3 vértices.";
-        }
-
-        rings.push(vertices);
     }
 
-    body.coordinates = rings;
-    return null;
-}
+    const unknownFields = Object.keys(body).filter(
+        (field) => !ALLOWED_FIELDS.includes(field)
+    );
 
-const zoneRules = {
-    name: { type: "string", required: true, min: 3, max: 80, label: "nombre" },
-    description: { type: "string", max: 200, label: "descripción" },
-    color: {
-        type: "string",
-        pattern: /^#[0-9a-fA-F]{6}$/,
-        patternMessage: "El color debe tener formato hexadecimal, por ejemplo #7c3aed.",
-        label: "color"
-    },
-    coordinates: { type: "custom", required: true, label: "coordenadas", check: checkPolygon }
-};
+    if (unknownFields.length > 0) {
+        errors.push(
+            `Los siguientes campos no son permitidos: ${unknownFields.join(", ")}.`
+        );
+    }
 
-function validateZonePayload({ partial = false } = {}) {
-    return createBodyValidator(zoneRules, { partial });
+    if (errors.length > 0) {
+        return next(
+            new AppError(400, "La información enviada no es válida", errors)
+        );
+    }
+
+    next();
 }
 
 module.exports = {

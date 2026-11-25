@@ -1,39 +1,59 @@
 "use strict";
 
 const mongoose = require("mongoose");
-const { baseSchemaOptions } = require("./schema.options");
-const { directoryBaseFields } = require("./directory.fields");
-const { HOSPITAL_TYPES, HOSPITAL_STATUSES } = require("../utils/constants");
+
+const {
+    ALLOWED_HOSPITAL_TYPES,
+    ALLOWED_HOSPITAL_STATUSES
+} = require("../middlewares/hospital.validator");
 
 const hospitalSchema = new mongoose.Schema(
     {
-        ...directoryBaseFields(HOSPITAL_STATUSES),
+        name: {
+            type: String,
+            required: true,
+            trim: true,
+            maxlength: 100
+        },
         type: {
             type: String,
             required: true,
-            enum: HOSPITAL_TYPES
+            enum: ALLOWED_HOSPITAL_TYPES
         },
-        emergencyPhone: {
+        status: {
             type: String,
+            required: true,
+            enum: ALLOWED_HOSPITAL_STATUSES
+        },
+        phone: {
+            type: String,
+            required: true,
+            trim: true
+        },
+        address: {
+            type: String,
+            required: true,
             trim: true,
-            maxlength: 30,
-            default: ""
+            maxlength: 200
         },
         beds: {
             type: Number,
-            min: 0,
-            default: 0
-        },
-        specialties: {
-            type: [String],
-            default: []
-        },
-        is24h: {
-            type: Boolean,
-            default: true
+            required: true,
+            min: 0
         }
     },
-    baseSchemaOptions
+    {
+        timestamps: true,
+
+        toJSON: {
+            versionKey: false,
+            transform(doc, ret) {
+                ret.id = ret._id.toString();
+                delete ret._id;
+                return ret;
+            }
+        }
+    }
 );
 
 const HospitalModel = mongoose.model("Hospital", hospitalSchema);

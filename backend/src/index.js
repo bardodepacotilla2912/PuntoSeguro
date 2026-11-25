@@ -11,11 +11,6 @@ const PORT = Number(process.env.PORT) || 3000;
 
 async function startServer() {
     try {
-        // 0.- Sin JWT_SECRET no se pueden firmar los tokens de sesión
-        if (!process.env.JWT_SECRET) {
-            throw new Error("Falta la variable JWT_SECRET en el archivo .env");
-        }
-
         // 1.- Primero se abre la conexión con la base de datos
         await connectDataBase();
 
@@ -48,7 +43,7 @@ async function startServer() {
         process.on("SIGTERM", () => shutdown("SIGTERM"));
 
     } catch (error) {
-        console.log("No se pudo iniciar el servidor:", error.message);
+        console.log("No se pudo conectar a MongoDB:", error.message);
         process.exit(1);
     }
 }

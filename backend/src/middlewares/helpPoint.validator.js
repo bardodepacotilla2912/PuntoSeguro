@@ -3,51 +3,174 @@
 const mongoose = require("mongoose");
 
 const AppError = require("../utils/appError");
-const { createBodyValidator, isValidLatitude, isValidLongitude } = require("../utils/validate");
-const { HELP_POINT_STATUSES } = require("../utils/constants");
 
-const helpPointRules = {
-    name: { type: "string", required: true, min: 3, max: 100, label: "nombre" },
-    description: { type: "string", required: true, min: 5, max: 300, label: "descripción" },
-    category: { type: "objectId", required: true, label: "categoría" },
-    status: { type: "enum", values: HELP_POINT_STATUSES, label: "estado" },
-    phone: {
-        type: "string",
-        max: 30,
-        pattern: /^[0-9+\-\s()]{3,30}$/,
-        patternMessage: "El teléfono solo puede contener números, espacios, +, - y paréntesis.",
-        label: "teléfono"
-    },
-    schedule: { type: "string", max: 60, label: "horario" },
-    latitude: {
-        type: "custom",
-        required: true,
-        label: "latitud",
-        check(value, body) {
-            if (!isValidLatitude(value)) return "La latitud debe ser un número entre -90 y 90.";
-            body.latitude = Number(value);
-            return null;
-        }
-    },
-    longitude: {
-        type: "custom",
-        required: true,
-        label: "longitud",
-        check(value, body) {
-            if (!isValidLongitude(value)) return "La longitud debe ser un número entre -180 y 180.";
-            body.longitude = Number(value);
-            return null;
-        }
-    }
-};
+// Letras (con acentos), números, espacios y signos básicos . , ' ( ) # - /
+const TEXT_PATTERN = /^[A-Za-zÁÉÍÓÚÜÑáéíóúüñ0-9 .,'()#\/-]+$/;
 
-function validateHelpPointPayload({ partial = false } = {}) {
-    return createBodyValidator(helpPointRules, { partial });
+// Al menos una letra (no se acepta solo números o solo signos)
+const LETTER_PATTERN = /[A-Za-zÁÉÍÓÚÜÑáéíóúüñ]/;
+
+// 10 dígitos; se permiten espacios y guiones entre ellos
+const PHONE_PATTERN = /^[0-9 -]+$/;
+
+// "24 horas" o "HH:MM - HH:MM" con horas de 00 a 23 y minutos de 00 a 59
+const SCHEDULE_PATTERN = /^(24 horas|([01]\d|2[0-3]):[0-5]\d\s*-\s*([01]\d|2[0-3]):[0-5]\d)$/i;
+
+const ALLOWED_HELP_POINT_STATUSES = [
+    "activo",
+    "inactivo"
+];
+
+const ALLOWED_FIELDS = [
+    "name",
+    "description",
+    "category",
+    "status",
+    "phone",
+    "schedule",
+    "latitude",
+    "longitude"
+];
+
+// Campos que se piden al crear (teléfono y horario son opcionales)
+const REQUIRED_FIELDS = [
+    "name",
+    "description",
+    "category",
+    "status",
+    "latitude",
+    "longitude"
+];
+
+// Validación del body (POST completo / PATCH parcial)
+function validateHelpPointPayload(options = {}) {
+    const { partial = false } = options;
+
+    return function helpPointPayloadValidator(req, res, next) {
+        const errors = [];
+        const body = req.body || {};
+
+        const providedFields = ALLOWED_FIELDS.filter(
+            (field) => body[field] !== undefined
+        );
+
+        if (partial && providedFields.length === 0) {
+            errors.push("Debes proporcionar al menos un campo para actualizar.");
+        }
+
+        if (!partial) {
+            REQUIRED_FIELDS.forEach((field) => {
+                if (
+                    body[field] === undefined ||
+                    body[field] === null ||
+                    body[field] === ""
+                ) {
+                    errors.push(`El campo "${field}" es obligatorio.`);
+                }
+            });
+        }
+
+        // Nombre
+        if (body.name !== undefined) {
+            if (typeof body.name !== "string" || body.name.trim().length < 3) {
+                errors.push("El nombre debe contener al menos 3 caracteres.");
+            } else if (body.name.trim().length > 100) {
+                errors.push("El nombre no debe superar los 100 caracteres.");
+            } else if (!TEXT_PATTERN.test(body.name.trim()) || !LETTER_PATTERN.test(body.name)) {
+                errors.push("El nombre debe tener letras y no puede llevar símbolos especiales.");
+            }
+        }
+
+        // Descripción
+        if (body.description !== undefined) {
+            if (typeof body.description !== "string" || body.description.trim().length < 5) {
+                errors.push("La descripción debe contener al menos 5 caracteres.");
+            } else if (body.description.trim().length > 250) {
+                errors.push("La descripción no debe superar los 250 caracteres.");
+            } else if (!LETTER_PATTERN.test(body.description)) {
+                errors.push("La descripción debe contener letras.");
+            }
+        }
+
+        // Categoría (ObjectId de la colección categories)
+        if (body.category !== undefined && !mongoose.isValidObjectId(body.category)) {
+            errors.push("La categoría no es válida.");
+        }
+
+        // Estado
+        if (body.status !== undefined && !ALLOWED_HELP_POINT_STATUSES.includes(body.status)) {
+            errors.push(
+                `El estado debe ser uno de los siguientes: ${ALLOWED_HELP_POINT_STATUSES.join(", ")}.`
+            );
+        }
+
+        // Teléfono (opcional): solo números (con espacios o guiones) y 10 dígitos
+        if (body.phone !== undefined && body.phone !== "") {
+            if (
+                typeof body.phone !== "string" ||
+                !PHONE_PATTERN.test(body.phone.trim()) ||
+                body.phone.replace(/[ -]/g, "").length !== 10
+            ) {
+                errors.push("El teléfono debe tener 10 dígitos (solo números, espacios o guiones).");
+            }
+        }
+
+        // Horario (opcional): "24 horas" o "HH:MM - HH:MM"
+        if (body.schedule !== undefined && body.schedule !== "") {
+            if (typeof body.schedule !== "string" || !SCHEDULE_PATTERN.test(body.schedule.trim())) {
+                errors.push('El horario debe ser "24 horas" o tener el formato HH:MM - HH:MM (ej. 08:00 - 22:00).');
+            }
+        }
+
+        // Latitud
+        if (body.latitude !== undefined) {
+            const latitude = Number(body.latitude);
+
+            if (!Number.isFinite(latitude)) {
+                errors.push("La latitud debe ser numérica.");
+            } else if (latitude < -90 || latitude > 90) {
+                errors.push("La latitud debe estar entre -90 y 90.");
+            } else {
+                req.body.latitude = latitude;
+            }
+        }
+
+        // Longitud
+        if (body.longitude !== undefined) {
+            const longitude = Number(body.longitude);
+
+            if (!Number.isFinite(longitude)) {
+                errors.push("La longitud debe ser numérica.");
+            } else if (longitude < -180 || longitude > 180) {
+                errors.push("La longitud debe estar entre -180 y 180.");
+            } else {
+                req.body.longitude = longitude;
+            }
+        }
+
+        const unknownFields = Object.keys(body).filter(
+            (field) => !ALLOWED_FIELDS.includes(field)
+        );
+
+        if (unknownFields.length > 0) {
+            errors.push(
+                `Los siguientes campos no son permitidos: ${unknownFields.join(", ")}.`
+            );
+        }
+
+        if (errors.length > 0) {
+            return next(
+                new AppError(400, "La información enviada no es válida", errors)
+            );
+        }
+
+        next();
+    };
 }
 
-// Filtros: ?search=&category=&status=&zone=
+// Validación de los filtros (query string): ?search=&category=&status=
 function validateHelpPointQuery(req, res, next) {
-    const { search, category, status, zone } = req.query;
+    const { search, category, status } = req.query;
     const errors = [];
 
     if (search !== undefined && typeof search !== "string") {
@@ -55,57 +178,46 @@ function validateHelpPointQuery(req, res, next) {
     }
 
     if (category !== undefined && category !== "all" && !mongoose.isValidObjectId(category)) {
-        errors.push("El parámetro category no es un identificador válido.");
+        errors.push("La categoría de filtrado no es válida.");
     }
 
-    if (status !== undefined && status !== "all" && !HELP_POINT_STATUSES.includes(status)) {
-        errors.push(`El parámetro status debe ser: all, ${HELP_POINT_STATUSES.join(", ")}.`);
-    }
-
-    if (zone !== undefined && zone !== "all" && !mongoose.isValidObjectId(zone)) {
-        errors.push("El parámetro zone no es un identificador válido.");
+    if (status !== undefined && status !== "all" && !ALLOWED_HELP_POINT_STATUSES.includes(status)) {
+        errors.push("El estado de filtrado no es válido.");
     }
 
     if (errors.length > 0) {
-        return next(new AppError(400, "Los parámetros de consulta no son válidos", errors));
+        return next(
+            new AppError(400, "Los parámetros de consulta no son válidos", errors)
+        );
     }
 
     next();
 }
 
-// Búsqueda del más cercano: ?lat=&lng=&category=&limit=&maxDistance=
+// Validación de la búsqueda del más cercano: ?lat=&lng=&category=
 function validateNearestQuery(req, res, next) {
-    const { lat, lng, category, limit, maxDistance } = req.query;
+    const { lat, lng, category } = req.query;
     const errors = [];
 
-    if (!isValidLatitude(lat)) {
+    const latitude = Number(lat);
+    const longitude = Number(lng);
+
+    if (lat === undefined || !Number.isFinite(latitude) || latitude < -90 || latitude > 90) {
         errors.push("El parámetro lat es obligatorio y debe estar entre -90 y 90.");
     }
 
-    if (!isValidLongitude(lng)) {
+    if (lng === undefined || !Number.isFinite(longitude) || longitude < -180 || longitude > 180) {
         errors.push("El parámetro lng es obligatorio y debe estar entre -180 y 180.");
     }
 
     if (category !== undefined && category !== "all" && !mongoose.isValidObjectId(category)) {
-        errors.push("El parámetro category no es un identificador válido.");
-    }
-
-    if (limit !== undefined) {
-        const value = Number(limit);
-        if (!Number.isInteger(value) || value < 1 || value > 20) {
-            errors.push("El parámetro limit debe ser un entero entre 1 y 20.");
-        }
-    }
-
-    if (maxDistance !== undefined) {
-        const value = Number(maxDistance);
-        if (!Number.isFinite(value) || value <= 0 || value > 100) {
-            errors.push("El parámetro maxDistance (km) debe estar entre 0 y 100.");
-        }
+        errors.push("La categoría de filtrado no es válida.");
     }
 
     if (errors.length > 0) {
-        return next(new AppError(400, "Los parámetros de consulta no son válidos", errors));
+        return next(
+            new AppError(400, "Los parámetros de consulta no son válidos", errors)
+        );
     }
 
     next();
@@ -114,5 +226,6 @@ function validateNearestQuery(req, res, next) {
 module.exports = {
     validateHelpPointPayload,
     validateHelpPointQuery,
-    validateNearestQuery
+    validateNearestQuery,
+    ALLOWED_HELP_POINT_STATUSES
 };

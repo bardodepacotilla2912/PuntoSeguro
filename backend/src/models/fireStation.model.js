@@ -1,26 +1,53 @@
 "use strict";
 
 const mongoose = require("mongoose");
-const { baseSchemaOptions } = require("./schema.options");
-const { directoryBaseFields } = require("./directory.fields");
-const { FIRE_STATION_STATUSES } = require("../utils/constants");
+
+const {
+    ALLOWED_FIRE_STATION_STATUSES
+} = require("../middlewares/fireStation.validator");
 
 const fireStationSchema = new mongoose.Schema(
     {
-        ...directoryBaseFields(FIRE_STATION_STATUSES),
+        name: {
+            type: String,
+            required: true,
+            trim: true,
+            maxlength: 100
+        },
+        status: {
+            type: String,
+            required: true,
+            enum: ALLOWED_FIRE_STATION_STATUSES
+        },
+        phone: {
+            type: String,
+            required: true,
+            trim: true
+        },
+        address: {
+            type: String,
+            required: true,
+            trim: true,
+            maxlength: 200
+        },
         units: {
             type: Number,
-            min: 0,
-            default: 0
-        },
-        chief: {
-            type: String,
-            trim: true,
-            maxlength: 100,
-            default: ""
+            required: true,
+            min: 0
         }
     },
-    baseSchemaOptions
+    {
+        timestamps: true,
+
+        toJSON: {
+            versionKey: false,
+            transform(doc, ret) {
+                ret.id = ret._id.toString();
+                delete ret._id;
+                return ret;
+            }
+        }
+    }
 );
 
 const FireStationModel = mongoose.model("FireStation", fireStationSchema);

@@ -4,7 +4,10 @@ require("dotenv").config();
 
 const bcrypt = require("bcryptjs");
 
-const { connectDataBase, disconnectDataBase } = require("../config/database");
+const {
+    connectDataBase,
+    disconnectDataBase
+} = require("../config/database");
 
 const UserModel = require("../models/user.model");
 const CategoryModel = require("../models/category.model");
@@ -15,98 +18,81 @@ const FireStationModel = require("../models/fireStation.model");
 const PoliceStationModel = require("../models/policeStation.model");
 const PharmacyModel = require("../models/pharmacy.model");
 
-const { categories, helpPoints, zones } = require("./seed.data");
+const data = require("./seed.data");
 
-// Modelo del directorio que corresponde a cada categoría
-const DIRECTORY_BY_CATEGORY = {
-    hospital: HospitalModel,
-    bomberos: FireStationModel,
-    policia: PoliceStationModel,
-    farmacia: PharmacyModel
-};
-
-// Usuario de prueba (se puede cambiar desde .env)
-const DEMO_USER = {
-    name: process.env.SEED_USER_NAME || "Usuario Demo",
-    email: process.env.SEED_USER_EMAIL || "demo@puntoseguro.com",
-    password: process.env.SEED_USER_PASSWORD || "Demo2026!"
-};
+// Colecciones que no dependen de otras (se insertan tal cual)
+const collections = [
+    { name: "hospitales", model: HospitalModel, data: data.hospitals },
+    { name: "estaciones de bomberos", model: FireStationModel, data: data.fireStations },
+    { name: "módulos de policía", model: PoliceStationModel, data: data.policeStations },
+    { name: "farmacias", model: PharmacyModel, data: data.pharmacies }
+];
 
 async function runSeed() {
     try {
         await connectDataBase();
 
-        // 1.- Limpiar las colecciones (los usuarios NO se borran)
-        await Promise.all([
-            CategoryModel.deleteMany({}),
-            HelpPointModel.deleteMany({}),
-            ZoneModel.deleteMany({}),
-            HospitalModel.deleteMany({}),
-            FireStationModel.deleteMany({}),
-            PoliceStationModel.deleteMany({}),
-            PharmacyModel.deleteMany({})
-        ]);
+        // 1.- Usuario de prueba (se borra si ya existía y se vuelve a crear)
+        await UserModel.deleteOne({ email: data.demoUser.email });
 
-        // Asegura que existan los índices 2dsphere
-        await Promise.all([HelpPointModel.syncIndexes(), ZoneModel.syncIndexes()]);
+        await UserModel.create({
+            name: data.demoUser.name,
+            email: data.demoUser.email,
+            password: await bcrypt.hash(data.demoUser.password, 10)
+        });
 
-        // 2.- Usuario de prueba (se crea o se actualiza su contraseña)
-        const password = await bcrypt.hash(DEMO_USER.password, 10);
-        const user = await UserModel.findOneAndUpdate(
-            { email: DEMO_USER.email.toLowerCase() },
-            { name: DEMO_USER.name, email: DEMO_USER.email.toLowerCase(), password },
-            { upsert: true, returnDocument: "after", setDefaultsOnInsert: true }
-        );
-        console.log(`Usuario de prueba listo: ${user.email}`);
+        console.log(`Usuario de prueba listo: ${data.demoUser.email}`);
 
-        // 3.- Categorías
-        const insertedCategories = await CategoryModel.insertMany(categories);
-        const categoryBySlug = new Map(insertedCategories.map((c) => [c.slug, c]));
-        console.log(`Se insertaron ${insertedCategories.length} categorías`);
+        // 2.- Categorías
+        await CategoryModel.deleteMany({});
+        const categories = await CategoryModel.insertMany(data.categories);
+        console.log(`Se insertaron ${categories.length} categorías en la base de datos`);
 
-        // 4.- Puntos de ayuda + su entrada en el directorio
-        let directoryCount = 0;
+        // 3.- Puntos de ayuda: el nombre de la categoría se cambia por su ObjectId
+        await HelpPointModel.deleteMany({});
 
-        for (const item of helpPoints) {
-            const category = categoryBySlug.get(item.category);
+        const helpPoints = data.helpPoints.map((point) => {
+            const category = categories.find((item) => item.name === point.category);
 
-            const point = await HelpPointModel.create({
-                name: item.name,
-                description: item.description,
+            return {
+                name: point.name,
+                description: point.description,
                 category: category._id,
-                status: item.status || "activo",
-                phone: item.phone,
-                schedule: item.schedule,
-                location: { type: "Point", coordinates: item.coordinates },
-                createdBy: user._id
-            });
+                status: point.status,
+                phone: point.phone,
+                schedule: point.schedule,
+                location: {
+                    type: "Point",
+                    coordinates: point.coordinates
+                }
+            };
+        });
 
-            if (item.directory) {
-                await DIRECTORY_BY_CATEGORY[item.category].create({
-                    name: item.name,
-                    phone: item.phone,
-                    ...item.directory,
-                    helpPoint: point._id,
-                    createdBy: user._id
-                });
-                directoryCount += 1;
+        const insertedPoints = await HelpPointModel.insertMany(helpPoints);
+        console.log(`Se insertaron ${insertedPoints.length} puntos de ayuda en la base de datos`);
+
+        // 4.- Zonas
+        await ZoneModel.deleteMany({});
+
+        const zones = data.zones.map((zone) => ({
+            name: zone.name,
+            area: {
+                type: "Polygon",
+                coordinates: zone.coordinates
             }
+        }));
+
+        const insertedZones = await ZoneModel.insertMany(zones);
+        console.log(`Se insertaron ${insertedZones.length} zonas en la base de datos`);
+
+        // 5.- Directorio (hospitales, bomberos, policía y farmacias)
+        for (const { name, model, data: documents } of collections) {
+            await model.deleteMany({});
+
+            const inserted = await model.insertMany(documents);
+
+            console.log(`Se insertaron ${inserted.length} ${name} en la base de datos`);
         }
-        console.log(`Se insertaron ${helpPoints.length} puntos de ayuda`);
-        console.log(`Se insertaron ${directoryCount} registros del directorio`);
-
-        // 5.- Zonas
-        const insertedZones = await ZoneModel.insertMany(
-            zones.map((zone) => ({
-                name: zone.name,
-                description: zone.description,
-                color: zone.color,
-                area: { type: "Polygon", coordinates: zone.coordinates },
-                createdBy: user._id
-            }))
-        );
-        console.log(`Se insertaron ${insertedZones.length} zonas`);
-
     } catch (error) {
         console.log("Error al cargar los datos:", error.message);
         process.exitCode = 1;

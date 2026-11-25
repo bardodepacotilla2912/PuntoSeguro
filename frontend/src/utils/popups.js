@@ -1,185 +1,160 @@
-import L from "leaflet";
-import { escapeHtml, formatCoord, formatDate, POINT_STATUS_LABELS } from "./format";
+// Contenido de los popups del mapa.
+// Se construyen con document.createElement / innerHTML y addEventListener,
+// igual que createPopupContent de la práctica.
 
-/*
- * Contenido HTML de los popups del mapa.
- * Los popups de Leaflet no son componentes de Vue, por eso se construyen con DOM
- * y se conectan los botones con addEventListener.
- */
+import { validateName, validateDescription, validatePhone, validateSchedule } from "./validations";
 
-// Formulario compartido para crear y editar un punto
-function pointFormHtml(values, categories) {
-  const categoryOptions = categories
-    .map((c) => `<option value="${c.id}" ${c.id === values.category ? "selected" : ""}>${escapeHtml(c.icon)} ${escapeHtml(c.name)}</option>`)
-    .join("");
+// Formulario que se usa para registrar y para editar un punto
+const FORM_HTML = `
+  <label>Nombre <input name="name" maxlength="100" /></label>
+  <label>Descripción <textarea name="description" rows="2" maxlength="250"></textarea></label>
+  <label>Categoría <select name="category"></select></label>
+  <label>Estado
+    <select name="status">
+      <option value="activo">Activo</option>
+      <option value="inactivo">Inactivo</option>
+    </select>
+  </label>
+  <label>Teléfono <input name="phone" type="tel" maxlength="12" placeholder="477 123 4567" /></label>
+  <label>Horario <input name="schedule" maxlength="20" placeholder="24 horas u 08:00 - 22:00" /></label>
+  <p class="popup-coords"></p>
+  <p class="message error" hidden></p>
+`;
 
-  const statusOptions = Object.entries(POINT_STATUS_LABELS)
-    .map(([value, label]) => `<option value="${value}" ${value === values.status ? "selected" : ""}>${label}</option>`)
-    .join("");
-
-  return `
-    <label>Nombre *
-      <input name="name" required maxlength="100" value="${escapeHtml(values.name)}" placeholder="Ej. Módulo de seguridad Centro" />
-    </label>
-    <label>Descripción *
-      <textarea name="description" required maxlength="300" rows="2" placeholder="¿Qué ayuda ofrece este punto?">${escapeHtml(values.description)}</textarea>
-    </label>
-    <div class="popup-row">
-      <label>Categoría *
-        <select name="category" required>
-          <option value="">Selecciona…</option>
-          ${categoryOptions}
-        </select>
-      </label>
-      <label>Estado
-        <select name="status">${statusOptions}</select>
-      </label>
-    </div>
-    <div class="popup-row">
-      <label>Teléfono
-        <input name="phone" maxlength="30" value="${escapeHtml(values.phone)}" placeholder="477 000 0000" />
-      </label>
-      <label>Horario
-        <input name="schedule" maxlength="60" value="${escapeHtml(values.schedule)}" placeholder="24 horas" />
-      </label>
-    </div>
-    <p class="popup-coords">📍 ${formatCoord(values.latitude)}, ${formatCoord(values.longitude)}</p>
-    <p class="popup-error" hidden></p>
-  `;
-}
-
-// Los botones del popup detienen el clic para que Leaflet no lo tome como
-// un clic en el mapa (al cambiar el contenido el botón deja de existir en el DOM)
-function onClick(element, handler) {
-  element.addEventListener("click", (event) => {
-    L.DomEvent.stop(event);
-    handler(event);
+// Llena el <select> de categorías
+function fillCategories(select, categories, selectedId) {
+  categories.forEach((category) => {
+    const option = document.createElement("option");
+    option.value = category.id;
+    option.textContent = category.name;
+    option.selected = category.id === selectedId;
+    select.appendChild(option);
   });
 }
 
+// Lee los valores del formulario
 function readForm(form) {
-  const data = Object.fromEntries(new FormData(form).entries());
-  Object.keys(data).forEach((key) => (data[key] = String(data[key]).trim()));
-  return data;
+  return {
+    name: form.name.value.trim(),
+    description: form.description.value.trim(),
+    category: form.category.value,
+    status: form.status.value,
+    phone: form.phone.value.trim(),
+    schedule: form.schedule.value.trim()
+  };
 }
 
-// Validación rápida en el navegador (el backend vuelve a validar todo)
-function validateForm(data) {
-  if (data.name.length < 3) return "El nombre debe tener al menos 3 caracteres.";
-  if (data.description.length < 5) return "La descripción debe tener al menos 5 caracteres.";
-  if (!data.category) return "Selecciona una categoría.";
-  return null;
+// Revisa los campos del punto; teléfono y horario son opcionales
+function validatePointForm(data) {
+  return (
+    validateName(data.name, 3) ||
+    validateDescription(data.description) ||
+    (data.phone !== "" ? validatePhone(data.phone) : "") ||
+    (data.schedule !== "" ? validateSchedule(data.schedule) : "")
+  );
 }
 
-function showError(container, message) {
-  const box = container.querySelector(".popup-error");
+function showError(form, message) {
+  const box = form.querySelector(".message");
   box.textContent = message;
-  box.hidden = !message;
+  box.hidden = false;
 }
 
-function setBusy(form, busy) {
-  form.querySelectorAll("button, input, select, textarea").forEach((el) => (el.disabled = busy));
-}
+// ---------- Popup para registrar un punto nuevo (clic en el mapa) ----------
+export function createNewPointForm(latlng, categories, onSave, onCancel) {
+  const form = document.createElement("form");
+  form.className = "popup";
 
-/* ---------- Popup para registrar un punto nuevo (clic en el mapa) ---------- */
-export function newPointPopup({ latlng, categories, onSave, onCancel }) {
-  const container = L.DomUtil.create("div", "ps-popup");
-  L.DomEvent.disableClickPropagation(container);
-  L.DomEvent.disableScrollPropagation(container);
-
-  container.innerHTML = `
-    <h3 class="popup-title">Nuevo punto de ayuda</h3>
-    <form class="popup-form">
-      ${pointFormHtml({ name: "", description: "", category: "", status: "activo", phone: "", schedule: "", latitude: latlng.lat, longitude: latlng.lng }, categories)}
-      <div class="popup-actions">
-        <button type="button" class="btn btn-ghost" data-action="cancel">Cancelar</button>
-        <button type="submit" class="btn btn-primary">Guardar punto</button>
-      </div>
-    </form>
+  form.innerHTML = `
+    <h3>Nuevo punto de ayuda</h3>
+    ${FORM_HTML}
+    <div class="popup-actions">
+      <button type="button" class="btn btn-light" data-action="cancel">Cancelar</button>
+      <button type="submit" class="btn btn-primary">Guardar</button>
+    </div>
   `;
 
-  const form = container.querySelector("form");
+  fillCategories(form.category, categories, categories[0].id);
+  form.querySelector(".popup-coords").textContent =
+    `Coordenadas: ${latlng.lat.toFixed(5)}, ${latlng.lng.toFixed(5)}`;
 
   form.addEventListener("submit", async (event) => {
     event.preventDefault();
-    const data = readForm(form);
-    const error = validateForm(data);
-    if (error) return showError(container, error);
 
-    showError(container, "");
-    setBusy(form, true);
+    const data = readForm(form);
+    const error = validatePointForm(data);
+
+    if (error) {
+      showError(form, error);
+      return;
+    }
 
     try {
-      await onSave({ ...data, latitude: latlng.lat, longitude: latlng.lng });
-    } catch (err) {
-      showError(container, err.fullMessage || err.message);
-      setBusy(form, false);
+      await onSave({
+        ...data,
+        latitude: latlng.lat,
+        longitude: latlng.lng
+      });
+    } catch (error) {
+      showError(form, error.message);
     }
   });
 
-  onClick(container.querySelector('[data-action="cancel"]'), onCancel);
+  form.querySelector('[data-action="cancel"]').addEventListener("click", onCancel);
 
-  return container;
+  return form;
 }
 
-/* ---------- Popup de un punto existente (ver / editar / eliminar) ---------- */
-export function pointPopup({ point, categories, onUpdate, onDelete, onResize = () => {} }) {
-  const container = L.DomUtil.create("div", "ps-popup");
-  L.DomEvent.disableClickPropagation(container);
-  L.DomEvent.disableScrollPropagation(container);
+// ---------- Popup de un punto existente: ver, editar y eliminar ----------
+export function createPointPopup(point, categories, marker, onUpdate, onDelete) {
+  const container = document.createElement("div");
+  container.className = "popup";
 
-  const [lng, lat] = point.location.coordinates;
+  const [longitude, latitude] = point.location.coordinates;
 
-  function renderView() {
-    const category = point.category || {};
-    const phone = point.phone
-      ? `<a href="tel:${escapeHtml(point.phone.replace(/\s/g, ""))}">${escapeHtml(point.phone)}</a>`
-      : "—";
-
+  function showInfo() {
     container.innerHTML = `
-      <div class="popup-head">
-        <span class="popup-icon" style="--marker-color:${escapeHtml(category.color)}">${escapeHtml(category.icon)}</span>
-        <div>
-          <h3 class="popup-title">${escapeHtml(point.name)}</h3>
-          <span class="badge" style="--badge-color:${escapeHtml(category.color)}">${escapeHtml(category.name)}</span>
-          <span class="badge badge-status is-${escapeHtml(point.status)}">${POINT_STATUS_LABELS[point.status] || point.status}</span>
-        </div>
-      </div>
-      <p class="popup-desc">${escapeHtml(point.description)}</p>
-      <dl class="popup-info">
-        <dt>Teléfono</dt><dd>${phone}</dd>
-        <dt>Horario</dt><dd>${escapeHtml(point.schedule || "—")}</dd>
-        <dt>Coordenadas</dt><dd>${formatCoord(lat)}, ${formatCoord(lng)}</dd>
-        <dt>Registró</dt><dd>${escapeHtml(point.createdBy?.name || "—")}</dd>
-        <dt>Actualizado</dt><dd>${formatDate(point.updatedAt)}</dd>
-      </dl>
+      <h3></h3>
+      <p class="popup-category"></p>
+      <p class="popup-text"></p>
+      <p><strong>Estado:</strong> <span data-field="status"></span></p>
+      <p><strong>Teléfono:</strong> <span data-field="phone"></span></p>
+      <p><strong>Horario:</strong> <span data-field="schedule"></span></p>
+      <p class="popup-coords"></p>
       <div class="popup-actions">
-        <button type="button" class="btn btn-danger-ghost" data-action="delete">Eliminar</button>
-        <button type="button" class="btn btn-primary" data-action="edit">Editar</button>
+        <button type="button" class="btn btn-light" data-action="edit">Editar</button>
+        <button type="button" class="btn btn-danger" data-action="delete">Eliminar</button>
       </div>
     `;
 
-    onClick(container.querySelector('[data-action="edit"]'), renderEdit);
-    onClick(container.querySelector('[data-action="delete"]'), () => onDelete(point));
-    onResize();
+    // textContent para que el texto de la base de datos no se interprete como HTML
+    container.querySelector("h3").textContent = point.name;
+    container.querySelector(".popup-category").textContent = point.category.name;
+    container.querySelector(".popup-text").textContent = point.description;
+    container.querySelector('[data-field="status"]').textContent = point.status;
+    container.querySelector('[data-field="phone"]').textContent = point.phone || "—";
+    container.querySelector('[data-field="schedule"]').textContent = point.schedule || "—";
+    container.querySelector(".popup-coords").textContent =
+      `Coordenadas: ${latitude.toFixed(5)}, ${longitude.toFixed(5)}`;
+
+    container.querySelector('[data-action="edit"]').addEventListener("click", (event) => {
+      // Evita que Leaflet tome este clic como un clic en el mapa
+      event.stopPropagation();
+      showForm();
+    });
+
+    container.querySelector('[data-action="delete"]').addEventListener("click", () => {
+      onDelete(point);
+    });
   }
 
-  function renderEdit() {
+  function showForm() {
     container.innerHTML = `
-      <h3 class="popup-title">Editar punto</h3>
-      <form class="popup-form">
-        ${pointFormHtml({
-          name: point.name,
-          description: point.description,
-          category: point.category?.id,
-          status: point.status,
-          phone: point.phone,
-          schedule: point.schedule,
-          latitude: lat,
-          longitude: lng
-        }, categories)}
+      <form>
+        <h3>Editar punto</h3>
+        ${FORM_HTML}
         <div class="popup-actions">
-          <button type="button" class="btn btn-ghost" data-action="cancel">Cancelar</button>
+          <button type="button" class="btn btn-light" data-action="cancel">Cancelar</button>
           <button type="submit" class="btn btn-primary">Guardar cambios</button>
         </div>
       </form>
@@ -187,53 +162,44 @@ export function pointPopup({ point, categories, onUpdate, onDelete, onResize = (
 
     const form = container.querySelector("form");
 
+    form.name.value = point.name;
+    form.description.value = point.description;
+    form.status.value = point.status;
+    form.phone.value = point.phone;
+    form.schedule.value = point.schedule;
+    fillCategories(form.category, categories, point.category.id);
+    form.querySelector(".popup-coords").textContent =
+      `Coordenadas: ${latitude.toFixed(5)}, ${longitude.toFixed(5)}`;
+
     form.addEventListener("submit", async (event) => {
       event.preventDefault();
-      const data = readForm(form);
-      const error = validateForm(data);
-      if (error) return showError(container, error);
 
-      showError(container, "");
-      setBusy(form, true);
+      const data = readForm(form);
+      const error = validatePointForm(data);
+
+      if (error) {
+        showError(form, error);
+        return;
+      }
 
       try {
         await onUpdate(point.id, data);
-      } catch (err) {
-        showError(container, err.fullMessage || err.message);
-        setBusy(form, false);
+      } catch (error) {
+        showError(form, error.message);
       }
     });
 
-    onClick(container.querySelector('[data-action="cancel"]'), renderView);
-    onResize();
+    form.querySelector('[data-action="cancel"]').addEventListener("click", (event) => {
+      event.stopPropagation();
+      showInfo();
+      marker.getPopup().update();
+    });
+
+    // El popup cambia de tamaño: se vuelve a acomodar
+    marker.getPopup().update();
   }
 
-  renderView();
-  return container;
-}
-
-/* ---------- Popup de una zona ---------- */
-export function zonePopup({ zone, onFilter, onDelete, onAddPoint }) {
-  const container = L.DomUtil.create("div", "ps-popup");
-  L.DomEvent.disableClickPropagation(container);
-
-  container.innerHTML = `
-    <div class="popup-head">
-      <span class="zone-swatch" style="background:${escapeHtml(zone.color)}"></span>
-      <h3 class="popup-title">${escapeHtml(zone.name)}</h3>
-    </div>
-    ${zone.description ? `<p class="popup-desc">${escapeHtml(zone.description)}</p>` : ""}
-    <p class="popup-desc"><strong>${zone.pointsInside ?? 0}</strong> puntos de ayuda dentro de la zona.</p>
-    <button type="button" class="btn btn-ghost btn-block" data-action="add">📍 Registrar un punto aquí</button>
-    <div class="popup-actions">
-      <button type="button" class="btn btn-danger-ghost" data-action="delete">Eliminar zona</button>
-      <button type="button" class="btn btn-primary" data-action="filter">Ver sus puntos</button>
-    </div>
-  `;
-
-  onClick(container.querySelector('[data-action="add"]'), () => onAddPoint());
-  onClick(container.querySelector('[data-action="filter"]'), () => onFilter(zone));
-  onClick(container.querySelector('[data-action="delete"]'), () => onDelete(zone));
+  showInfo();
 
   return container;
 }
