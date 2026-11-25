@@ -7,6 +7,16 @@ Aplicación web de **León, Guanajuato** que muestra en un mapa los lugares dond
 - Información de contacto (teléfono y horario).
 - Ruta para llegar.
 
+## Aplicación publicada
+
+| | URL |
+|---|---|
+| Aplicación (frontend) | https://puntoseguro-iota.vercel.app |
+| API (backend) | https://puntoseguro-api.vercel.app |
+| Base de datos | MongoDB Atlas |
+
+**Usuario de prueba:** `demo@puntoseguro.com` / `Demo2026!`
+
 ## Tecnologías
 
 | Parte | Tecnología |
@@ -115,6 +125,33 @@ npm run dev
 ```
 
 La aplicación queda en `http://localhost:5173`.
+
+## Despliegue (Vercel + MongoDB Atlas)
+
+El frontend y el backend se publican en Vercel como dos proyectos separados.
+
+**Backend** (carpeta `backend`): en Vercel no hay un servidor encendido todo el tiempo, así que
+`api/index.js` recibe cada petición, abre (o reutiliza) la conexión con MongoDB y se la pasa a la
+misma app de Express de `src/app.js`. `vercel.json` manda todas las rutas a esa función.
+Variables de entorno en Vercel:
+
+| Variable | Valor |
+|---|---|
+| `MONGO_URI` | Cadena de conexión de Atlas |
+| `FRONTEND_ORIGIN` | URL del frontend publicado (CORS) |
+
+**Frontend** (carpeta `frontend`): Vercel lo compila con `vite build`. `vercel.json` manda todas
+las rutas a `index.html` para que funcionen `/mapa`, `/directorio`, etc. Variable de entorno:
+`VITE_API_URL` = URL del backend terminada en `/api`.
+
+En Atlas → **Network Access** debe estar permitido `0.0.0.0/0`, porque Vercel no usa una IP fija.
+
+```bash
+cd backend  && npx vercel deploy --prod
+cd frontend && npx vercel deploy --prod
+```
+
+Para probar la API publicada: `TEST_API_URL=https://puntoseguro-api.vercel.app/api npm test`.
 
 ### Usuario de prueba
 
